@@ -12,14 +12,14 @@ license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "mousecast contributors" }]
 keywords = ["mouse", "lan", "remote", "broadcast", "windows", "automation"]
 
-# Pure core (screen/protocol/config) + asyncio net have no third-party deps.
-# The Windows capture/inject layer needs pywin32; it is an optional extra so the
-# tested core stays installable/importable everywhere (incl. CI on Linux).
+# Zero runtime dependencies: pure stdlib + ctypes + tkinter. The Windows
+# capture/inject layer uses ctypes directly (no pywin32), so there is nothing
+# extra to install -- it just needs to run on Windows.
 dependencies = []
 
 [project.optional-dependencies]
-win = ["pywin32>=306"]
 dev = ["pytest>=7.0"]
+build = ["pyinstaller>=6.0"]
 
 [project.scripts]
 mousecast = "mousecast.__main__:main"

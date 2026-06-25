@@ -26,7 +26,7 @@ def _run_controller(settings: Settings) -> int:
 
     net = NetRunner()
     net.start()
-    net.start_server(settings.listen_port)
+    net.start_server(settings.listen_port, secret=settings.secret)
     ctrl = Controller(settings, net)
     ctrl.start()
     period = 1.0 / max(1, settings.move_rate_hz)
@@ -50,7 +50,7 @@ def _run_follower(settings: Settings, host: str) -> int:
     net = NetRunner()
     net.start()
     follower = Follower()
-    net.connect(host, settings.listen_port, follower.handle)
+    net.connect(host, settings.listen_port, follower.handle, secret=settings.secret)
     print(f"follower: connected to {host}:{settings.listen_port}, reproducing mouse (Ctrl-C to stop)")
     try:
         while True:
@@ -68,11 +68,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--listen", action="store_true", help="run as the controller (headless)")
     parser.add_argument("--connect", metavar="HOST", help="run as a follower connecting to HOST (headless)")
     parser.add_argument("--port", type=int, help="override the port")
+    parser.add_argument("--secret", help="shared secret (must match on every PC)")
     args = parser.parse_args(argv)
 
     settings = Settings.load(args.settings)
     if args.port:
         settings.listen_port = args.port
+    if args.secret is not None:
+        settings.secret = args.secret
 
     if sys.platform != "win32" and (args.listen or args.connect):
         print("mousecast capture/inject requires Windows", file=sys.stderr)

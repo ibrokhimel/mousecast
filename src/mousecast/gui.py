@@ -26,6 +26,7 @@ class App(ttk.Frame):
         self.v_role = tk.StringVar(value="controller")
         self.v_port = tk.IntVar(value=settings.listen_port)
         self.v_host = tk.StringVar(value=settings.connect_to)
+        self.v_secret = tk.StringVar(value=settings.secret)
         self.v_move = tk.BooleanVar(value=settings.move)
         self.v_clicks = tk.BooleanVar(value=settings.clicks)
         self.v_wheel = tk.BooleanVar(value=settings.wheel)
@@ -44,6 +45,8 @@ class App(ttk.Frame):
         ttk.Entry(self, width=8, textvariable=self.v_port).grid(row=r, column=1, sticky="w"); r += 1
         ttk.Label(self, text="Controller IP\n(followers only)", justify="right").grid(row=r, column=0, sticky="e")
         ttk.Entry(self, width=16, textvariable=self.v_host).grid(row=r, column=1, sticky="w"); r += 1
+        ttk.Label(self, text="Secret\n(same on all)", justify="right").grid(row=r, column=0, sticky="e")
+        ttk.Entry(self, width=16, show="•", textvariable=self.v_secret).grid(row=r, column=1, sticky="w"); r += 1
 
         ttk.Separator(self).grid(row=r, column=0, columnspan=3, sticky="ew", pady=6); r += 1
         ttk.Label(self, text="Replicate", font="-weight bold").grid(row=r, column=0, sticky="w"); r += 1
@@ -59,7 +62,7 @@ class App(ttk.Frame):
 
     def _pull(self) -> None:
         s = self.settings
-        s.listen_port, s.connect_to = self.v_port.get(), self.v_host.get()
+        s.listen_port, s.connect_to, s.secret = self.v_port.get(), self.v_host.get(), self.v_secret.get()
         s.move, s.clicks, s.wheel = self.v_move.get(), self.v_clicks.get(), self.v_wheel.get()
 
     def on_save(self) -> None:
@@ -80,7 +83,7 @@ class App(ttk.Frame):
         try:
             if self.v_role.get() == "controller":
                 from .controller import Controller
-                self._net.start_server(self.settings.listen_port)
+                self._net.start_server(self.settings.listen_port, secret=self.settings.secret)
                 self._controller = Controller(self.settings, self._net)
                 self._controller.start()
                 self._pumping = True
@@ -89,11 +92,12 @@ class App(ttk.Frame):
             else:
                 from .controller import Follower
                 self._follower = Follower()
-                self._net.connect(self.settings.connect_to, self.settings.listen_port, self._follower.handle)
+                self._net.connect(self.settings.connect_to, self.settings.listen_port,
+                                  self._follower.handle, secret=self.settings.secret)
                 self.v_status.set(f"following {self.settings.connect_to}")
             self.btn.config(text="Stop")
         except ImportError:
-            self.v_status.set("needs Windows + pywin32")
+            self.v_status.set("needs Windows")
             self._stop()
 
     def _pump(self) -> None:

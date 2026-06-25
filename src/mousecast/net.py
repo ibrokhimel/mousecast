@@ -14,17 +14,25 @@ import contextlib
 import threading
 from collections.abc import Awaitable, Callable
 
+from . import auth
 from .protocol import Event, ProtocolError, decode, encode
 
 AcceptCallback = Callable[[str], bool]
 EventHandler = Callable[[Event], None]
 
+HANDSHAKE_TIMEOUT = 5.0
+
+
+class AuthError(Exception):
+    """Raised when the shared-secret handshake fails."""
+
 
 class Server:
     """Controller side: accept followers and broadcast events to them."""
 
-    def __init__(self, port: int, *, on_accept: AcceptCallback | None = None) -> None:
+    def __init__(self, port: int, *, secret: str = "", on_accept: AcceptCallback | None = None) -> None:
         self.port = port
+        self.secret = secret
         self.on_accept = on_accept
         self._server: asyncio.AbstractServer | None = None
         self._clients: dict[str, asyncio.StreamWriter] = {}
@@ -51,6 +59,12 @@ class Server:
         if self.on_accept and not self.on_accept(peer):
             writer.close()
             return
+        try:
+            await self._authenticate(reader, writer)
+        except (AuthError, asyncio.TimeoutError, ConnectionError):
+            with contextlib.suppress(Exception):
+                writer.close()
+            return
         self._clients[peer] = writer
         try:
             await reader.read()  # followers don't talk back; wait for disconnect
@@ -58,6 +72,16 @@ class Server:
             self._clients.pop(peer, None)
             with contextlib.suppress(Exception):
                 writer.close()
+
+    async def _authenticate(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Send a nonce challenge; require a correct HMAC reply before streaming."""
+        nonce = auth.make_nonce()
+        writer.write(f"HELLO {nonce}\n".encode("ascii"))
+        await writer.drain()
+        line = await asyncio.wait_for(reader.readline(), HANDSHAKE_TIMEOUT)
+        parts = line.decode("ascii", "replace").split()
+        if len(parts) != 2 or parts[0] != "AUTH" or not auth.verify(self.secret, nonce, parts[1]):
+            raise AuthError("bad secret")
 
     def send(self, ev: Event) -> None:
         data = encode(ev).encode("ascii")
@@ -71,17 +95,29 @@ class Server:
 class Client:
     """Follower side: connect to the controller and dispatch incoming events."""
 
-    def __init__(self, host: str, port: int, on_event: EventHandler) -> None:
+    def __init__(self, host: str, port: int, on_event: EventHandler, *, secret: str = "") -> None:
         self.host = host
         self.port = port
         self.on_event = on_event
+        self.secret = secret
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._task: asyncio.Task | None = None
 
     async def connect(self) -> None:
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+        await self._authenticate()
         self._task = asyncio.create_task(self._read_loop())
+
+    async def _authenticate(self) -> None:
+        """Answer the controller's nonce challenge with our HMAC."""
+        assert self._reader is not None and self._writer is not None
+        line = await asyncio.wait_for(self._reader.readline(), HANDSHAKE_TIMEOUT)
+        parts = line.decode("ascii", "replace").split()
+        if len(parts) != 2 or parts[0] != "HELLO":
+            raise AuthError("no challenge from controller")
+        self._writer.write(f"AUTH {auth.sign(self.secret, parts[1])}\n".encode("ascii"))
+        await self._writer.drain()
 
     async def _read_loop(self) -> None:
         assert self._reader is not None
@@ -97,7 +133,8 @@ class Client:
     async def close(self) -> None:
         if self._task:
             self._task.cancel()
-            with contextlib.suppress(Exception):
+            # CancelledError is a BaseException, so suppress(Exception) misses it
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
         if self._writer:
             self._writer.close()
@@ -140,8 +177,8 @@ class NetRunner:
         if self.server:
             self._loop.call_soon_threadsafe(self.server.send, ev)
 
-    def connect(self, host: str, port: int, on_event: EventHandler) -> Client:
-        self.client = Client(host, port, on_event)
+    def connect(self, host: str, port: int, on_event: EventHandler, *, secret: str = "") -> Client:
+        self.client = Client(host, port, on_event, secret=secret)
         self._submit(self.client.connect())
         return self.client
 

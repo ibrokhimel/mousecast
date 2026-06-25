@@ -25,9 +25,11 @@ def on_event(ev) -> None:
 
 
 async def main() -> None:
+    # usage: follower_probe.py <host> [port] [secret]
     host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 4666
-    client = Client(host, port, on_event)
+    secret = sys.argv[3] if len(sys.argv) > 3 else ""
+    client = Client(host, port, on_event, secret=secret)
     await client.connect()
     print(f"connected to {host}:{port} -- waiting for mouse events (Ctrl-C to quit)")
     try:

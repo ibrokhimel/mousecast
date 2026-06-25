@@ -10,11 +10,12 @@ Layering keeps the testable logic free of Win32:
     screen    -- resolution-independent (0..1) screen coordinates
     protocol  -- mouse-event wire protocol encode/decode
     config    -- settings + JSON
+    auth      -- shared-secret HMAC challenge/response
 
   Networking:
     net       -- asyncio controller(server)/follower(client) + background runner
 
-  Windows layer (ctypes/pywin32, validated on a real Windows box):
+  Windows layer (pure ctypes, validated on a real Windows box):
     mousehook -- WH_MOUSE_LL capture of move/click/wheel on the controller
     inject    -- reproduce events on a follower (SendInput / SetCursorPos)
     controller-- wires capture -> net (controller) and net -> inject (follower)

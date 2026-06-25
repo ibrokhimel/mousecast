@@ -16,6 +16,7 @@ DEFAULT_PORT = 4666
 class Settings:
     listen_port: int = DEFAULT_PORT     # controller listens / follower connects here
     connect_to: str = ""                # follower: controller host/IP
+    secret: str = ""                    # shared secret; set on every PC to lock down access
     # which mouse events the controller replicates
     move: bool = True
     clicks: bool = True
