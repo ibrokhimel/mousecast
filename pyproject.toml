@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omb-py"
+version = "0.1.0"
+description = "Open multiboxing tool for Windows -- broadcast keyboard/mouse/scroll to many game windows, across multiple PCs. Python rewrite of OpenMultiBoxing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "omb-py contributors" }]
+keywords = ["multiboxing", "windows", "broadcast", "gaming", "automation"]
+
+# Pure-logic core (config/protocol/geometry/delay) has no third-party deps.
+# The Windows layer needs pywin32; it is an optional/extra so the tested core
+# stays installable and importable everywhere (incl. CI on Linux).
+dependencies = []
+
+[project.optional-dependencies]
+win = ["pywin32>=306"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+omb = "omb.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# Make `src/omb` importable in tests without an install step.
+pythonpath = ["src"]
+testpaths = ["tests"]
