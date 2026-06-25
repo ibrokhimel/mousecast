@@ -1,5 +1,5 @@
-"""Smoke tests: the cross-platform modules import cleanly, and the Windows-only
-modules fail with a clear ImportError when their platform/deps are unavailable.
+"""Smoke tests: cross-platform modules import cleanly; Windows-only modules raise
+a clear ImportError when their platform/deps are unavailable.
 """
 import importlib
 import sys
@@ -8,18 +8,18 @@ import pytest
 
 
 def test_pure_modules_import():
-    for name in ["omb", "omb.config", "omb.protocol", "omb.geometry", "omb.delay", "omb.net", "omb.__main__"]:
+    for name in ["mousecast", "mousecast.screen", "mousecast.protocol", "mousecast.config",
+                 "mousecast.net", "mousecast.__main__"]:
         importlib.import_module(name)
-    import omb
+    import mousecast
 
-    assert omb.__version__
+    assert mousecast.__version__
 
 
-@pytest.mark.parametrize("name", ["omb.winapi", "omb.capture", "omb.broadcast"])
+@pytest.mark.parametrize("name", ["mousecast.winutil", "mousecast.mousehook", "mousecast.inject", "mousecast.controller"])
 def test_windows_only_modules_guarded(name):
-    """These require pywin32; off-Windows (or without it) they raise ImportError."""
     sys.modules.pop(name, None)
     try:
         importlib.import_module(name)
     except ImportError:
-        pass  # expected when not on Windows / pywin32 missing
+        pass  # expected off-Windows / without pywin32

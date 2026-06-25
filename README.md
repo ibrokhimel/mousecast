@@ -1,48 +1,43 @@
-# omb-py
+# mousecast
 
-Open multiboxing tool for Windows — broadcast your keyboard, mouse clicks and
-scroll wheel to many game windows at once, and across several PCs. A clean‑room
-**Python rewrite** of [OpenMultiBoxing](https://github.com/OpenMultiBoxing/OpenMultiBoxing)
-(originally a single 4000‑line Tcl/Tk script), restructured into a small, typed,
-testable package.
+Replicate **one PC's mouse onto many PCs** on your local network, in real time.
+
+One **controller** PC captures its mouse — movement, clicks and scroll — and
+streams it to any number of **follower** PCs on the LAN, which reproduce it on
+their own screens simultaneously. Works with any Windows app (it operates on the
+whole screen, not on specific windows). That's the whole tool.
 
 > **Status: early scaffold.** The cross‑platform *core* (wire protocol,
-> coordinate scaling, per‑PC delay, settings) is implemented and **unit‑tested**
-> (`pytest`, runs in CI). The **Windows layer** (window capture, input
-> injection, the low‑level scroll‑wheel hook, and the Tkinter GUI) is written
-> but needs validation on a real Windows box with `pywin32` — it can't be
-> exercised in CI. See [What works / what's next](#what-works--whats-next).
+> resolution‑independent coordinates, settings) is implemented and **unit‑tested**
+> (runs in CI). The **Windows layer** — the global mouse hook that captures input
+> and the `SendInput` injector that reproduces it — is written but needs
+> validation on real Windows PCs with `pywin32`; it can't run in CI.
 
-## Why a rewrite
+## How it works
 
-The original is powerful but is one big Tcl file. This port keeps the proven
-*ideas* (PostMessage input injection, per‑window coordinate scaling, the
-master/follower multi‑PC protocol, the per‑PC "humanization" delay, the
-`WH_MOUSE_LL` scroll hook) but separates the **pure logic** (easy to read and
-test) from the **Win32 plumbing**.
-
-## Architecture
+- The controller installs a low‑level mouse hook (`WH_MOUSE_LL`) and captures
+  every move / button / wheel event.
+- Each event's position is sent as a **fraction of the screen** (0–1 on each
+  axis), so it maps correctly onto follower PCs even at different resolutions.
+- Followers reproduce each event with `SendInput`: move the cursor to the same
+  fractional spot, then replay the button/scroll.
+- Movement is coalesced to a capped rate so it doesn't flood the network; clicks
+  and scrolls are sent immediately and in order.
 
 ```
-src/omb/
-  config.py     # typed settings + JSON persistence          (pure, tested)
-  protocol.py   # multi-PC wire protocol encode/decode        (pure, tested)
-  geometry.py   # abs <-> per-window relative coordinates     (pure, tested)
-  delay.py      # per-PC humanization delay model             (pure, tested)
-  net.py        # asyncio master/follower sockets             (uses protocol+delay)
-  winapi.py     # Win32 wrappers: windows, input, keys        (Windows-only)
-  wheelhook.py  # WH_MOUSE_LL scroll-wheel capture (ctypes)   (Windows-only)
-  capture.py    # find / capture / lay out game windows       (Windows-only)
-  broadcast.py  # ties capture + injection + net together     (Windows-only)
-  gui.py        # Tkinter front end                           (lazy Win32)
+src/mousecast/
+  screen.py     # resolution-independent (0..1) coordinates   (pure, tested)
+  protocol.py   # mouse-event wire protocol                    (pure, tested)
+  config.py     # settings + JSON                              (pure, tested)
+  net.py        # asyncio controller(server)/follower(client)  + background runner
+  winutil.py    # virtual-desktop bounds                       (Windows-only)
+  mousehook.py  # WH_MOUSE_LL capture of move/click/wheel       (Windows-only)
+  inject.py     # reproduce events via SendInput                (Windows-only)
+  controller.py # capture->send (controller) / receive->inject (follower)
+  gui.py        # tiny Tkinter front end
 tools/
-  follower_probe.py  # connect as a fake follower, print relayed events
-  launch_game.py     # launch N staggered game windows (replaces the .bat files)
-tests/          # pytest suite for the pure core
+  follower_probe.py   # connect as a fake follower, print received events
 ```
-
-The Win32 modules raise `ImportError` off‑Windows on purpose, so the pure core
-stays importable and testable everywhere.
 
 ## Install & run
 
@@ -53,48 +48,35 @@ pytest -q
 
 # full app, on Windows
 pip install -e ".[win,dev]"
-python -m omb            # or:  omb
 ```
 
-## Features
+Run it (Windows). **Controller** (the PC whose mouse you want to share):
 
-- **Window layout & capture** — find your game windows by title, tile them,
-  optional borderless.
-- **Mouse broadcasting** — replay a click on the focused window to every other
-  window (PostMessage), with per‑window coordinate scaling.
-- **Scroll‑wheel broadcasting (experimental)** — a `WH_MOUSE_LL` hook captures
-  the wheel (which can't be polled) and relays it like clicks.
-- **Multi‑PC** — one main PC relays input to follower PCs over TCP (default port
-  `4464`).
-- **Per‑PC humanization delay** — each follower gets a constant random base
-  delay (0–5 s, configurable) assigned once, plus small per‑event jitter, so the
-  followers don't act in robotic lockstep. Applies to mouse + wheel only; keys
-  and the main PC stay instant.
+```bash
+mousecast --listen            # headless,   or just `mousecast` for the GUI
+```
 
-### Multi‑PC setup
+**Each follower** PC:
 
-1. **Main PC:** tick **Listen for followers** (default port 4464). Open that
-   port inbound in Windows Firewall.
-2. **Each follower:** enter the main PC's IP in **Connect to main PC** → Connect.
-3. Capture each PC's own game windows, then broadcast on the main PC.
+```bash
+mousecast --connect 192.168.1.50    # the controller's LAN IP
+```
 
-Tip: run `python tools/follower_probe.py <main-ip>` from any machine to watch the
-relayed events (and the delay) without needing a second game PC.
+Open the chosen TCP port (default **4666**) inbound in Windows Firewall on the
+controller. Tip: `python tools/follower_probe.py <controller-ip>` shows the
+event stream from any machine, so you can test without a second Windows PC.
 
-## What works / what's next
+## Caveats
 
-| Area | State |
-|------|-------|
-| protocol / geometry / delay / config | ✅ implemented + unit‑tested |
-| asyncio multi‑PC server/client + NetRunner | ✅ implemented (integration‑level) |
-| Win32 window capture / layout / injection | ✍️ written — **validate on Windows** |
-| `WH_MOUSE_LL` scroll‑wheel hook (ctypes) | ✍️ written — **validate on Windows** |
-| Tkinter GUI wiring | ✍️ written — **validate on Windows** |
-| Key broadcasting (down/up + remap/exclude) | ⏳ next — structure in place |
-| Global hotkeys, focus‑follow‑mouse, overlay | ⏳ not ported yet |
+- It moves the **real cursor** on each follower — those PCs follow along, they
+  aren't independent while connected.
+- Different aspect ratios stretch the mapping (fractional, per axis); identical
+  resolutions are exact.
+- Security: this injects input on every follower. Run it only on a **trusted
+  LAN** — there's no authentication yet.
 
-## License & attribution
+## License
 
-GPLv3 (see [`LICENSE`](LICENSE)). This is a derivative of **OpenMultiBoxing** by
-MooreaTV and contributors — <https://github.com/OpenMultiBoxing/OpenMultiBoxing>.
-Use responsibly and within each game's rules.
+GPLv3 (see [`LICENSE`](LICENSE)). Originally derived from the design of
+[OpenMultiBoxing](https://github.com/OpenMultiBoxing/OpenMultiBoxing) (MooreaTV
+et al.), then reduced to this single purpose.

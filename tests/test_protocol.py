@@ -2,59 +2,55 @@ import math
 
 import pytest
 
-from omb.protocol import (
-    KeyMsg,
-    MouseMsg,
+from mousecast.protocol import (
+    Button,
+    Move,
     ProtocolError,
-    WheelMsg,
+    Wheel,
     decode,
     encode,
-    is_mouse_like,
 )
 
 
 @pytest.mark.parametrize(
-    "msg",
+    "ev",
     [
-        MouseMsg(0.5, 0.25, "left"),
-        MouseMsg(0.0, 1.0, "right"),
-        MouseMsg(0.123456, 0.987654, ""),  # a move (no button)
-        WheelMsg(0.5, 0.5, 120),
-        WheelMsg(0.5, 0.5, -120),
-        KeyMsg(down=True, keycode=65),
-        KeyMsg(down=False, keycode=0x57),
+        Move(0.5, 0.25),
+        Move(0.0, 1.0),
+        Button(0.5, 0.5, "left", down=True),
+        Button(0.1, 0.9, "right", down=False),
+        Button(0.3, 0.3, "middle", down=True),
+        Wheel(0.5, 0.5, 120),
+        Wheel(0.5, 0.5, -240),
     ],
 )
-def test_round_trip(msg):
-    line = encode(msg)
+def test_round_trip(ev):
+    line = encode(ev)
     assert line.endswith("\n")
     got = decode(line)
-    if isinstance(msg, (MouseMsg, WheelMsg)):
-        assert math.isclose(got.xp, msg.xp, rel_tol=0, abs_tol=1e-9)
-        assert math.isclose(got.yp, msg.yp, rel_tol=0, abs_tol=1e-9)
-    assert got == msg or isinstance(msg, (MouseMsg, WheelMsg))
+    assert type(got) is type(ev)
+    if isinstance(ev, (Move, Button, Wheel)):
+        assert math.isclose(got.fx, ev.fx, abs_tol=1e-6)
+        assert math.isclose(got.fy, ev.fy, abs_tol=1e-6)
+    if isinstance(ev, Button):
+        assert got.button == ev.button and got.down == ev.down
+    if isinstance(ev, Wheel):
+        assert got.delta == ev.delta
 
 
-def test_move_has_no_button_token():
-    assert encode(MouseMsg(0.5, 0.5, "")) == "MOUSE 0.5 0.5\n"
+def test_down_up_distinct():
+    assert decode("DOWN 0.5 0.5 left").down is True
+    assert decode("UP 0.5 0.5 left").down is False
 
 
-def test_decode_move_vs_click():
-    assert decode("MOUSE 0.5 0.5\n").button == ""
-    assert decode("MOUSE 0.5 0.5 left\n").button == "left"
+def test_move_format():
+    assert encode(Move(0.5, 0.5)) == "MOVE 0.5 0.5\n"
 
 
-def test_wheel_delta_is_int_and_signed():
-    assert decode("WHEEL 0.1 0.2 -240\n") == WheelMsg(0.1, 0.2, -240)
-
-
-def test_keys_are_not_mouse_like_but_mouse_and_wheel_are():
-    assert is_mouse_like(MouseMsg(0, 0))
-    assert is_mouse_like(WheelMsg(0, 0, 120))
-    assert not is_mouse_like(KeyMsg(down=True, keycode=65))
-
-
-@pytest.mark.parametrize("bad", ["", "   ", "NONSENSE 1 2", "MOUSE x y", "WHEEL 0.1 0.2", "DOWN"])
+@pytest.mark.parametrize(
+    "bad",
+    ["", "   ", "JUNK 1 2", "MOVE x y", "DOWN 0.5 0.5 middlebutton", "DOWN 0.5 0.5", "WHEEL 0.1 0.2"],
+)
 def test_bad_lines_raise(bad):
     with pytest.raises(ProtocolError):
         decode(bad)

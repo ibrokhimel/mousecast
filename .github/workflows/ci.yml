@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest
-      # The Windows layer (winapi/wheelhook/capture/broadcast/gui) needs pywin32
-      # and a real Windows box, so CI only exercises the cross-platform core.
+      # The Windows layer (mousehook/inject/controller) needs pywin32 and a real
+      # Windows box, so CI only exercises the cross-platform core.
       - name: Run tests
         run: python -m pytest -q
